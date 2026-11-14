@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { pool } from "./db.js";
-import { requireAuth, requireAdmin } from "./auth.js";
+import { requireAuth, requireAdmin, jwtSecret } from "./auth.js";
 
 const app = express();
 app.use(helmet());
@@ -20,7 +20,7 @@ const phoneSchema = z.string().regex(/^\+52\d{10}$/, "Usa +52 y 10 dígitos");
 const passwordSchema = z.string().min(10).max(72);
 const tokenFor = (user) => jwt.sign(
   { sub: user.id, role: user.role, name: user.display_name },
-  process.env.JWT_SECRET,
+  jwtSecret,
   { expiresIn: "2h" }
 );
 

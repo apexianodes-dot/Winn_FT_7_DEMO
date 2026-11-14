@@ -1,3 +1,36 @@
+modules = ["nodejs-24", "postgresql-16"]
 [nix]
 channel = "stable-25_05"
 packages = ["unzip"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash -c 'set -e; NODE_ENV=development PORT=4000 npm --prefix apps/api run dev & API_PID=$!; npm --prefix apps/web run dev & WEB_PID=$!; trap \"kill $API_PID $WEB_PID 2>/dev/null || true\" EXIT; wait -n $API_PID $WEB_PID'"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 4000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80

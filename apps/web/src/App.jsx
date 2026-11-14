@@ -5,7 +5,7 @@ import {
   Star, CircleHelp, Sparkles, RotateCw, Spade, Coins, X
 } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API = import.meta.env.VITE_API_URL || "";
 const nav = [["Inicio",Home],["Juegos",Gamepad2],["Billetera",Wallet],["Bonos",Gift],["Mi cuenta",UserRound]];
 const games = [
   {id:"slots_demo",name:"Tragamonedas",subtitle:"Símbolos originales",icon:"🎰",tag:"POPULAR"},
