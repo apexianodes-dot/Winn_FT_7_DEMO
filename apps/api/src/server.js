@@ -8,6 +8,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { pool } from "./db.js";
 import { requireAuth, requireAdmin, jwtSecret } from "./auth.js";
+import { debitDemoCredits } from "./wallet/demo-wallet.js";
 
 const app = express();
 app.use(helmet());
@@ -45,7 +46,10 @@ app.post("/api/auth/register", async (req, res) => {
       [parsed.data.phone, parsed.data.displayName, passwordHash]
     );
     const user = inserted.rows[0];
-    await client.query("INSERT INTO demo_wallets(user_id,balance) VALUES($1,10000)", [user.id]);
+    await client.query(
+      "INSERT INTO demo_wallets(user_id,balance,cash_balance,bonus_balance) VALUES($1,10000,0,10000)",
+      [user.id]
+    );
     await client.query(
       "INSERT INTO demo_ledger(user_id,delta,balance_after,reason) VALUES($1,10000,10000,'signup_demo')",
       [user.id]
@@ -95,7 +99,8 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/me", requireAuth, async (req, res) => {
   const result = await pool.query(
-    `SELECT u.id,u.phone_e164,u.display_name,u.phone_verified,u.role,w.balance
+    `SELECT u.id,u.phone_e164,u.display_name,u.phone_verified,u.role,
+            w.balance,w.cash_balance,w.bonus_balance
      FROM users u JOIN demo_wallets w ON w.user_id=u.id WHERE u.id=$1`,
     [req.auth.sub]
   );
@@ -114,22 +119,16 @@ app.post("/api/demo/round", requireAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const wallet = await client.query(
-      "SELECT balance FROM demo_wallets WHERE user_id=$1 FOR UPDATE", [req.auth.sub]
-    );
-    if (!wallet.rowCount || wallet.rows[0].balance < parsed.data.credits) {
+    const wallet = await debitDemoCredits(client, {
+      userId: req.auth.sub,
+      amount: parsed.data.credits,
+      reason: parsed.data.game
+    });
+    if (!wallet) {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "Créditos demo insuficientes" });
     }
-    const next = wallet.rows[0].balance - parsed.data.credits;
-    await client.query(
-      "UPDATE demo_wallets SET balance=$2,updated_at=NOW() WHERE user_id=$1",
-      [req.auth.sub, next]
-    );
-    await client.query(
-      "INSERT INTO demo_ledger(user_id,delta,balance_after,reason) VALUES($1,$2,$3,$4)",
-      [req.auth.sub, -parsed.data.credits, next, parsed.data.game]
-    );
+    const next = wallet.balance;
     let outcome;
     if (parsed.data.game === "slots_demo") {
       const symbols = ["🍒", "⭐", "🔔", "🍀", "💎", "7️⃣"];

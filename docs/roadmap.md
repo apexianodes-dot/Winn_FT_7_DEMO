@@ -30,3 +30,10 @@ Solo después de validación jurídica y contractual:
 
 ## Regla de arquitectura
 No reutilizar el saldo demo como dinero real. La futura billetera real debe ser un subsistema separado, con doble registro contable, idempotencia, conciliación y trazabilidad.
+
+## Preparación del hub híbrido (apagado)
+- Contrato versionado y módulos de adaptadores en `docs/game-integration-hub.md`.
+- Ningún juego actual está conectado al hub; sus rutas, UI y resultados siguen siendo los de DEMO.
+- La billetera demo conserva un total de 10,000 créditos iniciales; el bucket de bono mantiene separado ese importe confirmado.
+- vFair Games y el repositorio `open-rgs/open-rgs` permanecen deshabilitados; no hay integración externa activa.
+- Antes de activar proveedores o migrar un juego: aprobación independiente, especificación contractual, seguridad de callbacks y conciliación.
