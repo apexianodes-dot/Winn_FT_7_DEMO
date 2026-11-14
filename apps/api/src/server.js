@@ -8,7 +8,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { pool } from "./db.js";
 import { requireAuth, requireAdmin, jwtSecret } from "./auth.js";
-import { debitDemoCredits } from "./wallet/demo-wallet.js";
+import { creditDemoCredits, debitDemoCredits } from "./wallet/demo-wallet.js";
 
 const app = express();
 app.use(helmet());
@@ -115,48 +115,78 @@ app.post("/api/demo/round", requireAuth, async (req, res) => {
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Ronda inválida" });
 
-  // Simulación de coste fijo, sin RNG de premios ni conversión a dinero.
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const wallet = await debitDemoCredits(client, {
+    const bet = await debitDemoCredits(client, {
       userId: req.auth.sub,
       amount: parsed.data.credits,
       reason: parsed.data.game
     });
-    if (!wallet) {
+    if (!bet) {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "Créditos demo insuficientes" });
     }
-    const next = wallet.balance;
+
+    let payout = 0;
     let outcome;
     if (parsed.data.game === "slots_demo") {
       const symbols = ["🍒", "⭐", "🔔", "🍀", "💎", "7️⃣"];
       const reels = Array.from({ length: 3 }, () => symbols[Math.floor(Math.random() * symbols.length)]);
       const matched = reels.every((symbol) => symbol === reels[0]);
+      payout = matched ? parsed.data.credits * 10 : 0;
       outcome = {
         visual: reels.join("  "),
         title: matched ? "¡Tres símbolos iguales!" : "Giro completado",
-        description: "Resultado visual de práctica. No se generan premios ni créditos."
+        description: matched
+          ? `Premio DEMO acreditado: ${payout} créditos (10 veces la apuesta).`
+          : "Sin combinación ganadora. No se acreditaron premios."
       };
     } else if (parsed.data.game === "roulette_demo") {
       const number = Math.floor(Math.random() * 37);
       outcome = {
         visual: `${number === 0 ? "🟢" : number % 2 ? "🔴" : "⚫"} ${number}`,
         title: "La ruleta se ha detenido",
-        description: "Resultado aleatorio de práctica, sin premios ni pagos."
+        description: "Resultado de práctica. Esta versión no tiene apuestas por número o color ni premios configurados."
       };
     } else {
       const player = 12 + Math.floor(Math.random() * 10);
       const dealer = 12 + Math.floor(Math.random() * 10);
+      const won = player > dealer;
+      const pushed = player === dealer;
+      payout = won ? parsed.data.credits * 2 : pushed ? parsed.data.credits : 0;
       outcome = {
         visual: `🃏 ${player}  ·  ${dealer} 🂠`,
-        title: player > dealer ? "Gana la mano de práctica" : player === dealer ? "Mano empatada" : "El dealer gana esta mano",
-        description: "Mano simulada. No se generan premios ni créditos."
+        title: won ? "Gana la mano de práctica" : pushed ? "Mano empatada" : "El dealer gana esta mano",
+        description: won
+          ? `Premio DEMO acreditado: ${payout} créditos (2 veces la apuesta).`
+          : pushed
+            ? `Apuesta devuelta: ${payout} créditos.`
+            : "Sin premio en esta mano."
       };
     }
+
+    let wallet = bet;
+    if (payout > 0) {
+      wallet = await creditDemoCredits(client, {
+        userId: req.auth.sub,
+        bonusAmount: payout,
+        reason: "demo_game_payout"
+      });
+      if (!wallet) throw new Error("No se pudo acreditar el premio DEMO.");
+    }
+
     await client.query("COMMIT");
-    res.json({ balance: next, result: "Ronda demo registrada", outcome, mode: "DEMO" });
+    res.json({
+      balance: wallet.balance,
+      cashBalance: wallet.cashBalance,
+      bonusBalance: wallet.bonusBalance,
+      bet: parsed.data.credits,
+      payout,
+      result: "Ronda demo registrada",
+      outcome,
+      mode: "DEMO"
+    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("demo_round_error", err.message);
