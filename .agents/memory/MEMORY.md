@@ -1,0 +1,1 @@
+- [Alcance del hub de juegos](hybrid-game-hub-scope.md) — mantener WINN FT 7 como demo aislada; el hub no concede acceso directo a proveedores a la base de datos o billetera.
