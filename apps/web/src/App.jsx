@@ -12,37 +12,69 @@ const games = [
   {id:"roulette_demo",name:"Ruleta",subtitle:"Gira y descubre el resultado",icon:"🎡",tag:"CLÁSICO"},
   {id:"blackjack_demo",name:"Blackjack",subtitle:"Practica contra el dealer",icon:"🃏",tag:"ESTRATEGIA"}
 ];
+const SESSION_KEY = "winn-ft-7-demo-session";
+
+function readStoredSession() {
+  try {
+    const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    return session?.token && session?.user ? session : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
-  const [page,setPage]=useState("Acceso"), [authMode,setAuthMode]=useState("login");
+  const [initialSession] = useState(readStoredSession);
+  const [page,setPage]=useState(initialSession ? "Inicio" : "Acceso"), [authMode,setAuthMode]=useState("login");
   const [phone,setPhone]=useState("+52"), [password,setPassword]=useState(""), [displayName,setDisplayName]=useState("JugadorFT7");
   const [accepted,setAccepted]=useState(false), [userId,setUserId]=useState(""), [otp,setOtp]=useState(""), [demoCode,setDemoCode]=useState("");
-  const [token,setToken]=useState(""), [user,setUser]=useState(null), [balance,setBalance]=useState(10000);
+  const [token,setToken]=useState(initialSession?.token || ""), [user,setUser]=useState(initialSession?.user || null), [balance,setBalance]=useState(10000);
   const [notice,setNotice]=useState("Estás en una experiencia de demostración. Los créditos no tienen valor monetario.");
   const [game,setGame]=useState("slots_demo"), [stake,setStake]=useState(100), [busy,setBusy]=useState(false);
   const [result,setResult]=useState(null), [history,setHistory]=useState([]), [admin,setAdmin]=useState(null), [adminUsers,setAdminUsers]=useState([]);
   const [mobileMenu,setMobileMenu]=useState(false);
 
+  function clearSession(message) {
+    try { localStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable in restricted browsers. */ }
+    setToken("");setUser(null);setResult(null);setPage("Acceso");setAuthMode("login");setPassword("");setNotice(message);
+  }
+  function saveSession(nextToken,nextUser) {
+    localStorage.setItem(SESSION_KEY,JSON.stringify({token:nextToken,user:nextUser}));
+    setToken(nextToken);setUser(nextUser);
+  }
   async function request(path,body,auth=false,method) {
     const response=await fetch(`${API}${path}`,{method:method || (body?"POST":"GET"),headers:{"Content-Type":"application/json",...(auth?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
     const data=await response.json().catch(()=>({}));
+    if(response.status===401&&auth) clearSession("Tu sesión expiró o dejó de ser válida. Inicia sesión nuevamente.");
     if(!response.ok) throw new Error(data.error||"No se pudo completar la solicitud");
     return data;
   }
   async function loadAccount(t) {
     const r=await fetch(`${API}/api/me`,{headers:{Authorization:`Bearer ${t}`}});
-    const me=await r.json(); if(!r.ok) throw new Error(me.error||"No se pudo cargar la cuenta");
+    const me=await r.json().catch(()=>({})); if(!r.ok) {
+      if(r.status===401) clearSession("Tu sesión expiró o dejó de ser válida. Inicia sesión nuevamente.");
+      throw new Error(me.error||"No se pudo cargar la cuenta");
+    }
     setBalance(Number(me.balance)); return me;
   }
+  useEffect(()=>{
+    if(!initialSession) return;
+    loadAccount(initialSession.token).then(account=>{
+      saveSession(initialSession.token,{...initialSession.user,...account});
+    }).catch(error=>{
+      if(error.message!=="Sesión inválida o expirada"&&error.message!=="No autenticado")
+        setNotice("No se pudo actualizar el saldo. Tu sesión se conservará mientras vuelve la conexión.");
+    });
+  },[]);
   async function register(e){e.preventDefault();setBusy(true);try{
     const d=await request("/api/auth/register",{phone,password,displayName});
     setUserId(d.userId);setDemoCode(d.demoVerificationCode||"");setOtp("");setAuthMode("verify");setNotice("Cuenta creada. Completa la verificación de prueba.");
   }catch(e){setNotice(e.message)}finally{setBusy(false)}}
   async function verify(e){e.preventDefault();setBusy(true);try{
-    const d=await request("/api/auth/verify-demo",{userId,code:otp});setToken(d.token);setUser(d.user);await loadAccount(d.token);setPage("Inicio");setNotice("¡Bienvenido a WINN FT 7!");
+    const d=await request("/api/auth/verify-demo",{userId,code:otp});const account=await loadAccount(d.token);saveSession(d.token,{...d.user,...account});setPage("Inicio");setNotice("¡Bienvenido a WINN FT 7!");
   }catch(e){setNotice(e.message)}finally{setBusy(false)}}
   async function login(e){e.preventDefault();setBusy(true);try{
-    const d=await request("/api/auth/login",{phone,password});setToken(d.token);setUser(d.user);await loadAccount(d.token);setPage("Inicio");setNotice("Sesión iniciada correctamente.");
+    const d=await request("/api/auth/login",{phone,password});const account=await loadAccount(d.token);saveSession(d.token,{...d.user,...account});setPage("Inicio");setNotice("Sesión iniciada correctamente.");
   }catch(e){setNotice(e.message)}finally{setBusy(false)}}
   async function play(){setBusy(true);setResult(null);try{
     const d=await request("/api/demo/round",{game,credits:stake},true);setBalance(Number(d.balance));setResult(d.outcome);setNotice("Ronda de práctica completada. No hay premios ni valor monetario.");
@@ -51,7 +83,7 @@ export default function App() {
   async function openPage(p){setPage(p);setMobileMenu(false);if(p==="Billetera"&&token){try{const d=await request("/api/demo/history",null,true);setHistory(d.entries||[])}catch(e){setNotice(e.message)}}
     if(p==="Administración"&&token&&user?.role==="admin"){try{const [a,u]=await Promise.all([request("/api/admin/overview",null,true),request("/api/admin/users",null,true)]);setAdmin(a);setAdminUsers(u.users||[])}catch(e){setNotice(e.message)}}
   }
-  function logout(){setToken("");setUser(null);setResult(null);setPage("Acceso");setAuthMode("login");setPassword("");setNotice("Sesión cerrada.");}
+  function logout(){clearSession("Sesión cerrada.");}
   const money=useMemo(()=>balance.toLocaleString("es-MX"),[balance]);
 
   return <main className="app-shell">

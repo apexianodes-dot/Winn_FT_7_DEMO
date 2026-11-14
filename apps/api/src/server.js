@@ -95,7 +95,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/me", requireAuth, async (req, res) => {
   const result = await pool.query(
-    `SELECT u.id,u.phone_e164,u.display_name,u.phone_verified,w.balance
+    `SELECT u.id,u.phone_e164,u.display_name,u.phone_verified,u.role,w.balance
      FROM users u JOIN demo_wallets w ON w.user_id=u.id WHERE u.id=$1`,
     [req.auth.sub]
   );
